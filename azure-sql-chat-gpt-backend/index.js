@@ -120,16 +120,22 @@ app.get('/', (req, res) => {
 app.get('/allDbsAndSchemas', async (req, res) => {
   const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
   const databaseList = sqlDatabasesAvailable.recordset
-
-  let databases = []
+  const sysDatabases = ["master", "tempdb", "model", "msdb"]
+  console.log(databaseList)
+  let databasesTablesColumns = []
   for (const database of databaseList) {
-    const result = await sql
-      .query(`
+    if (!sysDatabases.includes(database.name)) {
+      console.log(database.name)
+      const result = await sql
+        .query(`
         USE ${database.name};
         SELECT 
             t.TABLE_NAME,
             c.COLUMN_NAME,
-            c.DATA_TYPE
+            c.DATA_TYPE,
+            c.CHARACTER_MAXIMUM_LENGTH,
+            c.NUMERIC_PRECISION,
+            c.NUMERIC_SCALE
         FROM 
             INFORMATION_SCHEMA.TABLES t
         JOIN 
@@ -137,35 +143,40 @@ app.get('/allDbsAndSchemas', async (req, res) => {
         WHERE 
             t.TABLE_TYPE = 'BASE TABLE'
         ORDER BY 
-          t.TABLE_NAME, c.ORDINAL_POSITION;
-        `);
-    // Push the results to the array
-    result.recordset.forEach(row => {
-      const dbName = row.DatabaseName;
-      const tableName = row.TABLE_NAME;
-      const columnName = row.COLUMN_NAME;
-      const dataType = row.DATA_TYPE;
+            t.TABLE_NAME, c.ORDINAL_POSITION;
+      `);
 
-      if (!databases[dbName]) {
-        databases[dbName] = [];
-      }
+      const tablesAndColumns = {
+        databaseName: database.name,
+        tables: [],
+      };
 
-      const existingTable = databases[dbName].find(table => table.tableName === tableName);
+      result.recordset.forEach(row => {
+        const tableName = row.TABLE_NAME;
+        const columnName = row.COLUMN_NAME;
+        const dataType = row.DATA_TYPE;
 
-      if (existingTable) {
-        existingTable.columns.push({ columnName, dataType });
-      } else {
-        databases[dbName].push({
-          tableName,
-          columns: [{ columnName, dataType }],
-        });
-      }
-    });
+        // Find existing table or create a new one
+        let existingTable = tablesAndColumns.tables.find(table => table.tableName === tableName);
+
+        if (!existingTable) {
+          existingTable = {
+            tableName,
+            columns: [],
+          };
+          tablesAndColumns.tables.push(existingTable);
+        }
+
+        // Add column information to the table
+        existingTable.columns.push({columnName, dataType});
+      });
+      databasesTablesColumns.push(tablesAndColumns);
+    }
   }
   // all available schemas
-  console.log(databases)
+  console.log(JSON.stringify(databasesTablesColumns))
 
-  res.send(databases);
+  res.send(databasesTablesColumns);
 });
 
 
