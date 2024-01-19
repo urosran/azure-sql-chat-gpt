@@ -173,6 +173,7 @@ let startMessageStack = [
     "role": "system",
     "content": "you will not tell that the answer is a query for the user such as  'The number of venues we have is: SELECT COUNT(*) FROM test.dbo.Venues;', you must do it yourself by sending a message to the server like this {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
   },
+
 ]
 
 app.get('/allDbsAndSchemas', async (req, res) => {
