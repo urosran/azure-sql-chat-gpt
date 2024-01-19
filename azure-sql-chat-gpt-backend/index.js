@@ -61,10 +61,9 @@ const {OpenAIClient, AzureKeyCredential} = require("@azure/openai");
 const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
 const azureApiKey = process.env.AZURE_OPENAI_KEY;
 const openAIClient = new OpenAIClient(endpoint, new AzureKeyCredential(azureApiKey));
-const deploymentId = "gpt-35-turbo";
+const deploymentId = "sql-mi";
 
 // TODO: SQL CONNECTION
-console.log(process.env.SQL_PASSWORD)
 const config = {
   user: process.env.SQL_USER,
   password: process.env.SQL_PASSWORD,
@@ -90,44 +89,79 @@ sql.connect(config, (err) => {
 //</editor-fold>
 
 // <editor-fold desc="Functions">
-async function getChatGptAnswer(messages) {
-  const result = await openAIClient.getChatCompletions(deploymentId, messages);
-
-  for (const choice of result.choices) {
-    console.log(choice.message);
+async function getChatGptAnswerObject(messages) {
+  let messageHistory = messages;
+  console.log('messageHistory')
+  console.log(messageHistory)
+  try {
+    const result = await openAIClient.getChatCompletions(deploymentId, messages);
+    let chatGptAnswerObject = JSON.parse(result.choices[0].message.content)
+    console.log('chat gpt answer')
+    console.log(chatGptAnswerObject)
+    if (!chatGptAnswerObject) {
+      console.log('chat gpt answer is null')
+    }
+    return chatGptAnswerObject;
+  } catch (e) {
+    console.log(e)
+    console.log('catching and retrying')
+    messageHistory.push({
+      "role": "system",
+      "content": "Please repeat that answer but use valid JSON only."
+    })
+    await getChatGptAnswerObject(messageHistory);
   }
 }
 
 //</editor-fold>
 
 // <editor-fold desc="Routes">
-app.get('/getChatGptAnswer', async function (req, res) {
-  const messageHistory = req.body.messages
-  const chatGptAnswer = getChatGptAnswer(messageHistory);
-  console.log('chatGptAnswer')
-  console.log(chatGptAnswer)
-  res.write(chatGptAnswer)
-  // check if the chatgpt answer is a sql query if so run it
-  const result = await sql.query`SELECT * FROM Tickets Where TicketID = ${req.body.TicketID}`;
-
-  res.json(result.recordset);
-})
-
 app.get('/', (req, res) => {
   res.send('SQL ChatGpt server operational!');
 });
 
+
+let startMessageStack = [
+  {
+    "role": "system",
+    "content": "You act as the middleman between USER and a DATABASE. Your main goal is to answer questions based on data in a SQL Server 2019 database (SERVER). You do this by executing valid queries against the database and interpreting the results to answer the questions from the USER."
+  },
+  {
+    "role": "user",
+    "content": "From now you will only ever respond with JSON. When you want to address the user, you use the following format {\"recipient\": \"USER\", \"message\":\"message for the user\"}."
+  },
+  {"role": "assistant", "content": "{\"recipient\": \"USER\", \"message\":\"I understand.\"}."},
+  {
+    "role": "user",
+    "content": "You can address the SQL Server by using the SERVER recipient. When calling the server, you must also specify an action. The action can be QUERY when you want to QUERY the database. The format you will use for executing a query is as follows: {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
+  },
+  {
+    "role": "user",
+    "content": "if you need to query the database to answer information you're supposed to write the query in the message part of the JSON as specified earlier and repeated here {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
+  }, {
+    "role": "system",
+    "content": "you cannot tell the user to execute a query, you must do it yourself by sending a message to the server. like this {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
+  }, {
+    "role": "system",
+    "content": "you will not tell that the answer is a query for the user such as 'The query for the number of venues is: SELECT COUNT(*) FROM test.dbo.Venues;', you must do it yourself by sending a message to the server like this {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
+  }, {
+    "role": "system",
+    "content": "you will not tell that the answer is a query for the user such as  'The number of venues we have is: SELECT COUNT(*) FROM test.dbo.Venues;', you must do it yourself by sending a message to the server like this {\"recipient\":\"SERVER\", \"action\":\"QUERY\", \"message\":\"SELECT SUM(OrderQty) FROM Sales.SalesOrderDetail;\"}"
+  },
+]
+
 app.get('/allDbsAndSchemas', async (req, res) => {
-  const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
-  const databaseList = sqlDatabasesAvailable.recordset
-  const sysDatabases = ["master", "tempdb", "model", "msdb"]
-  console.log(databaseList)
-  let databasesTablesColumns = []
-  for (const database of databaseList) {
-    if (!sysDatabases.includes(database.name)) {
-      console.log(database.name)
-      const result = await sql
-        .query(`
+    const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
+    const databaseList = sqlDatabasesAvailable.recordset
+    const sysDatabases = ["master", "tempdb", "model", "msdb"]
+
+    // console.log(databaseList)
+    let databasesTablesColumns = []
+    for (const database of databaseList) {
+      if (!sysDatabases.includes(database.name)) {
+        // console.log(database.name)
+        const result = await sql
+          .query(`
         USE ${database.name};
         SELECT 
             t.TABLE_NAME,
@@ -146,38 +180,82 @@ app.get('/allDbsAndSchemas', async (req, res) => {
             t.TABLE_NAME, c.ORDINAL_POSITION;
       `);
 
-      const tablesAndColumns = {
-        databaseName: database.name,
-        tables: [],
-      };
+        const tablesAndColumns = {
+          databaseName: database.name,
+          tables: [],
+        };
 
-      result.recordset.forEach(row => {
-        const tableName = row.TABLE_NAME;
-        const columnName = row.COLUMN_NAME;
-        const dataType = row.DATA_TYPE;
+        result.recordset.forEach(row => {
+          const tableName = row.TABLE_NAME;
+          const columnName = row.COLUMN_NAME;
+          const dataType = row.DATA_TYPE;
 
-        // Find existing table or create a new one
-        let existingTable = tablesAndColumns.tables.find(table => table.tableName === tableName);
+          // Find existing table or create a new one
+          let existingTable = tablesAndColumns.tables.find(table => table.tableName === tableName);
 
-        if (!existingTable) {
-          existingTable = {
-            tableName,
-            columns: [],
-          };
-          tablesAndColumns.tables.push(existingTable);
-        }
+          if (!existingTable) {
+            existingTable = {
+              tableName,
+              columns: [],
+            };
+            tablesAndColumns.tables.push(existingTable);
+          }
 
-        // Add column information to the table
-        existingTable.columns.push({columnName, dataType});
-      });
-      databasesTablesColumns.push(tablesAndColumns);
+          // Add column information to the table
+          existingTable.columns.push({columnName, dataType});
+        });
+        databasesTablesColumns.push(tablesAndColumns);
+      }
     }
-  }
-  // all available schemas
-  console.log(JSON.stringify(databasesTablesColumns))
+    // all available schemas
+    // console.log(databasesTablesColumns)
 
-  res.send(databasesTablesColumns);
-});
+    let messageHistory = startMessageStack
+
+    messageHistory.push({
+      "role": "user",
+      "content": "here is the json with all databases, tables and columns with datatypes: " + JSON.stringify(databasesTablesColumns)
+    })
+
+    messageHistory.push({
+      "role": "user",
+      "content": "How many venues do we have?"
+    })
+    let chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
+
+    console.log('answer to the user question')
+    console.log(chatGptAnswerObject)
+
+    switch (chatGptAnswerObject.recipient) {
+      case 'SERVER':
+        if (chatGptAnswerObject.action === 'QUERY') {
+          const result = await sql.query(chatGptAnswerObject.message);
+
+          messageHistory.push({
+            "role": "user",
+            "content": "The response you got from the database is:" + JSON.stringify(result.recordset)
+          })
+
+          chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
+          console.log('chatGptAnswerObject')
+          console.log(chatGptAnswerObject)
+          res.write(JSON.stringify(messageHistory))
+        }
+        return
+      case 'USER':
+        messageHistory.push(chatGptAnswerObject)
+        res.write(JSON.stringify(messageHistory))
+        break
+      case 'ASSISTANT':
+        messageHistory.push(chatGptAnswerObject)
+        res.write(JSON.stringify(messageHistory))
+        break
+      default:
+        console.log('Something went wrong')
+        throw new Error('Something went wrong')
+    }
+    res.end(' ok');
+  });
 
 
 // Catch all requests
