@@ -96,6 +96,9 @@ async function getChatGptAnswerObject(messages) {
     const result = await openAIClient.getChatCompletions(deploymentId, messages);
     messageHistory.push(result.choices[0].message)
     let chatGptAnswerObject = JSON.parse(result.choices[0].message.content)
+    if (!result.choices[0].message){
+      return
+    }
     console.log('chatGptAnswerObject')
     console.log(chatGptAnswerObject)
     switch (chatGptAnswerObject.recipient) {
@@ -180,7 +183,7 @@ let startMessageStack = [
 
 ]
 
-app.get('/allDbsAndSchemas', async (req, res) => {
+app.post('/allDbsAndSchemas', async (req, res) => {
   const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
   const databaseList = sqlDatabasesAvailable.recordset
   const sysDatabases = ["master", "tempdb", "model", "msdb"]
@@ -257,7 +260,7 @@ app.get('/allDbsAndSchemas', async (req, res) => {
   console.log('answer to the user question')
   console.log(getUpdatedMessageHistory)
 
-  res.send(getUpdatedMessageHistory ? getUpdatedMessageHistory : 'Something went wrong');
+  res.send(getUpdatedMessageHistory ? JSON.stringify(getUpdatedMessageHistory) : 'Something went wrong');
 });
 
 
