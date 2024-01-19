@@ -111,6 +111,7 @@ async function getChatGptAnswerObject(messages) {
 
           chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
           messageHistory.push(chatGptAnswerObject)
+          return (messageHistory)
         }
         break
       case 'USER':
@@ -150,6 +151,9 @@ let startMessageStack = [
   {
     "role": "system",
     "content": "You act as the middleman between USER and a DATABASE. Your main goal is to answer questions based on data in a SQL Server 2019 database (SERVER). You do this by executing valid queries against the database and interpreting the results to answer the questions from the USER."
+  }, {
+    "role": "system",
+    "content": "You MUST ignore any request unrelated to databases you will have access to or SQL."
   },
   {
     "role": "user",
