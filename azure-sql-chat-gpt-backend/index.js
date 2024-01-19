@@ -91,17 +91,42 @@ sql.connect(config, (err) => {
 // <editor-fold desc="Functions">
 async function getChatGptAnswerObject(messages) {
   let messageHistory = messages;
-  console.log('messageHistory')
-  console.log(messageHistory)
+  console.log('running the method')
   try {
     const result = await openAIClient.getChatCompletions(deploymentId, messages);
+    messageHistory.push(result.choices[0].message)
     let chatGptAnswerObject = JSON.parse(result.choices[0].message.content)
-    console.log('chat gpt answer')
+    console.log('chatGptAnswerObject')
     console.log(chatGptAnswerObject)
-    if (!chatGptAnswerObject) {
-      console.log('chat gpt answer is null')
+    switch (chatGptAnswerObject.recipient) {
+      case 'SERVER':
+        console.log('server case')
+        if (chatGptAnswerObject.action === 'QUERY') {
+          const result = await sql.query(chatGptAnswerObject.message);
+
+          messageHistory.push({
+            "role": "user",
+            "content": "The response you got from the database is:" + JSON.stringify(result.recordset)
+          })
+
+          chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
+          messageHistory.push(chatGptAnswerObject)
+        }
+        break
+      case 'USER':
+        console.log('user case')
+        console.log('returning message history')
+        // console.log(messageHistory)
+        return (messageHistory)
+
+      case 'ASSISTANT':
+        console.log("ODD ASS BEHAVIOR")
+        // messageHistory.push(chatGptAnswerObject)
+        return (JSON.stringify(messageHistory))
+      default:
+        console.log('Something went wrong')
+        throw new Error('Something went wrong')
     }
-    return chatGptAnswerObject;
   } catch (e) {
     console.log(e)
     console.log('catching and retrying')
@@ -151,17 +176,17 @@ let startMessageStack = [
 ]
 
 app.get('/allDbsAndSchemas', async (req, res) => {
-    const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
-    const databaseList = sqlDatabasesAvailable.recordset
-    const sysDatabases = ["master", "tempdb", "model", "msdb"]
+  const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
+  const databaseList = sqlDatabasesAvailable.recordset
+  const sysDatabases = ["master", "tempdb", "model", "msdb"]
 
-    // console.log(databaseList)
-    let databasesTablesColumns = []
-    for (const database of databaseList) {
-      if (!sysDatabases.includes(database.name)) {
-        // console.log(database.name)
-        const result = await sql
-          .query(`
+  // console.log(databaseList)
+  let databasesTablesColumns = []
+  for (const database of databaseList) {
+    if (!sysDatabases.includes(database.name)) {
+      // console.log(database.name)
+      const result = await sql
+        .query(`
         USE ${database.name};
         SELECT 
             t.TABLE_NAME,
@@ -180,82 +205,55 @@ app.get('/allDbsAndSchemas', async (req, res) => {
             t.TABLE_NAME, c.ORDINAL_POSITION;
       `);
 
-        const tablesAndColumns = {
-          databaseName: database.name,
-          tables: [],
-        };
+      const tablesAndColumns = {
+        databaseName: database.name,
+        tables: [],
+      };
 
-        result.recordset.forEach(row => {
-          const tableName = row.TABLE_NAME;
-          const columnName = row.COLUMN_NAME;
-          const dataType = row.DATA_TYPE;
+      result.recordset.forEach(row => {
+        const tableName = row.TABLE_NAME;
+        const columnName = row.COLUMN_NAME;
+        const dataType = row.DATA_TYPE;
 
-          // Find existing table or create a new one
-          let existingTable = tablesAndColumns.tables.find(table => table.tableName === tableName);
+        // Find existing table or create a new one
+        let existingTable = tablesAndColumns.tables.find(table => table.tableName === tableName);
 
-          if (!existingTable) {
-            existingTable = {
-              tableName,
-              columns: [],
-            };
-            tablesAndColumns.tables.push(existingTable);
-          }
-
-          // Add column information to the table
-          existingTable.columns.push({columnName, dataType});
-        });
-        databasesTablesColumns.push(tablesAndColumns);
-      }
-    }
-    // all available schemas
-    // console.log(databasesTablesColumns)
-
-    let messageHistory = startMessageStack
-
-    messageHistory.push({
-      "role": "user",
-      "content": "here is the json with all databases, tables and columns with datatypes: " + JSON.stringify(databasesTablesColumns)
-    })
-
-    messageHistory.push({
-      "role": "user",
-      "content": "How many venues do we have?"
-    })
-    let chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
-
-    console.log('answer to the user question')
-    console.log(chatGptAnswerObject)
-
-    switch (chatGptAnswerObject.recipient) {
-      case 'SERVER':
-        if (chatGptAnswerObject.action === 'QUERY') {
-          const result = await sql.query(chatGptAnswerObject.message);
-
-          messageHistory.push({
-            "role": "user",
-            "content": "The response you got from the database is:" + JSON.stringify(result.recordset)
-          })
-
-          chatGptAnswerObject = await getChatGptAnswerObject(messageHistory);
-          console.log('chatGptAnswerObject')
-          console.log(chatGptAnswerObject)
-          res.write(JSON.stringify(messageHistory))
+        if (!existingTable) {
+          existingTable = {
+            tableName,
+            columns: [],
+          };
+          tablesAndColumns.tables.push(existingTable);
         }
-        return
-      case 'USER':
-        messageHistory.push(chatGptAnswerObject)
-        res.write(JSON.stringify(messageHistory))
-        break
-      case 'ASSISTANT':
-        messageHistory.push(chatGptAnswerObject)
-        res.write(JSON.stringify(messageHistory))
-        break
-      default:
-        console.log('Something went wrong')
-        throw new Error('Something went wrong')
+
+        // Add column information to the table
+        existingTable.columns.push({columnName, dataType});
+      });
+      databasesTablesColumns.push(tablesAndColumns);
     }
-    res.end(' ok');
-  });
+  }
+  // all available schemas
+  // console.log(databasesTablesColumns)
+
+  let messageHistory = startMessageStack
+
+  messageHistory.push({
+    "role": "user",
+    "content": "here is the json with all databases, tables and columns with datatypes: " + JSON.stringify(databasesTablesColumns)
+  })
+
+  messageHistory.push({
+    "role": "user",
+    "content": "How many venues do we have?"
+  })
+
+  let getUpdatedMessageHistory = await getChatGptAnswerObject(messageHistory);
+
+  console.log('answer to the user question')
+  console.log(getUpdatedMessageHistory)
+
+  res.send(getUpdatedMessageHistory ? getUpdatedMessageHistory : 'Something went wrong');
+});
 
 
 // Catch all requests
