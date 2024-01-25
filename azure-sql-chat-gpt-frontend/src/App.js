@@ -9,8 +9,8 @@ import CustomMenu from "./components/CustomMenu";
 function App() {
 
     function resetConversations(conversation) {
-        return conversation = []
         toast.success('Conversations reset');
+        return conversation = []
     }
 
     return (

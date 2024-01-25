@@ -10,7 +10,7 @@ export const theme =
     palette: {
       primary: {
         // light: will be calculated from palette.primary.main,
-        main: '#5271FF',
+        main: '#0278d4',
         contrastText: '#ffffff',
         white: '#ffffff'
         // dark: will be calculated from palette.primary.main,

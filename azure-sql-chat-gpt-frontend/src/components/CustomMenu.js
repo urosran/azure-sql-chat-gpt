@@ -12,6 +12,7 @@ import Button from '@mui/material/Button';
 import Tooltip from '@mui/material/Tooltip';
 import MenuItem from '@mui/material/MenuItem';
 import AdbIcon from '@mui/icons-material/Adb';
+import {Stack} from "@mui/material";
 
 const pages = [];
 const settings = [];
@@ -126,12 +127,18 @@ function CustomMenu({resetConversations}) {
                         ))}
                     </Box>
 
-                    <Box sx={{flexGrow: 0}}>
+                    <Stack direction={'row'} sx={{flexGrow: 0}} spacing={2}>
                         <Tooltip title="Open settings">
-                            <Button variant={'outlined'} onClick={resetConversations} sx={{p: 0}}>
-                                reset conversation
+                            <Button variant={'outlined'} onClick={() => resetConversations}
+                                    sx={{color: 'white', borderColor: 'white'}}>
+                                reset
                             </Button>
                         </Tooltip>
+
+                        <Button variant={'contained'} onClick={() => resetConversations}
+                                sx={{color: 'black', backgroundColor: 'white', }}>
+                            connect to Azure SQL
+                        </Button>
                         {/*<Menu*/}
                         {/*    sx={{ mt: '45px' }}*/}
                         {/*    id="menu-appbar"*/}
@@ -154,7 +161,7 @@ function CustomMenu({resetConversations}) {
                         {/*        </MenuItem>*/}
                         {/*    ))}*/}
                         {/*</Menu>*/}
-                    </Box>
+                    </Stack>
                 </Toolbar>
             </Container>
         </AppBar>

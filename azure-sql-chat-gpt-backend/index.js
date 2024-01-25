@@ -3,7 +3,7 @@ const cors = require("cors");
 const bodyParser = require("body-parser");
 const dotenv = require('dotenv');
 const sql = require('mssql');
-const util = require('util')
+const _ = require('lodash');
 
 //<editor-fold desc="Server Set Up">
 const app = express();
@@ -131,18 +131,18 @@ function extractValidJson(inputString) {
 async function getChatGptAnswerObject(messages) {
     let messageHistory = messages;
     console.log('running the method');
-    console.log(messages);
+    // console.log(messages);
 
     while (true) {
         try {
             const result = await openAIClient.getChatCompletions(deploymentId, messages);
-            console.log(result.choices[0].message.content)
+            // console.log(result.choices[0].message.content)
             const validJson = extractValidJson(result.choices[0].message.content);
-            console.log(validJson)
+            // console.log(validJson)
             if (!validJson) throw new Error('Invalid JSON');
-            console.log(validJson)
+            // console.log(validJson)
             result.choices[0].message.content = validJson
-            console.log(result.choices[0].message);
+            // console.log(result.choices[0].message);
             let chatGptAnswerObject = JSON.parse(result.choices[0].message.content);
             messageHistory.push(result.choices[0].message);
 
@@ -185,7 +185,8 @@ async function getChatGptAnswerObject(messages) {
             messageHistory.push({
                 role: 'system',
                 content:
-                    'Please repeat that answer but use valid JSON only like "recipient": "SERVER", "action": "QUERY", "message":"SELECT COUNT(*) FROM test.dbo.Venues;" and no other text or explanation. This is not an acceptable answer: \'Here is your answer in valid JSON: {"recipient":"SERVER", "action":"QUERY", "message":"SELECT COUNT(*) FROM test.dbo.Venues;"}\'',
+                    'Repeat that answer but format like the following JSON' +
+                    ' {"recipient": "SERVER", "action": "QUERY", "message":"SELECT COUNT(*) FROM test.dbo.Venues;" and no other text or explanation. This is not an acceptable answer: \'Here is your answer in valid JSON: {"recipient":"SERVER", "action":"QUERY", "message":"SELECT COUNT(*) FROM test.dbo.Venues;"}\'}',
             });
         }
     }
@@ -291,18 +292,16 @@ let startMessageStack = [
 
 app.post('/allDbsAndSchemas', async (req, res) => {
     if (!sql) {
-
         res.status(500).send('Something went wrong');
         return
     }
+
     const userQuery = req.body.userQuery
     if (!userQuery) {
         console.log('no user query')
         res.status(400).send('No user query')
         return
     }
-    console.log('send status 5')
-    console.log(userQuery)
 
     const sqlDatabasesAvailable = await sql.query`SELECT name FROM master.sys.databases`;
     const databaseList = sqlDatabasesAvailable.recordset
@@ -363,12 +362,14 @@ app.post('/allDbsAndSchemas', async (req, res) => {
     }
     // all available schemas
     // console.log(databasesTablesColumns)
-
-    let messageHistory = startMessageStack
-
+    console.log('startMessageStack')
+    console.log(startMessageStack)
+    let messageHistory = _.cloneDeep(startMessageStack)
+    // console.log('messageHistory')
+    // console.log(messageHistory)
     messageHistory.push({
         "role": "system",
-        "content": "here is the json with all databases, tables and columns with datatypes: " + JSON.stringify(databasesTablesColumns)
+        "content": "here is the json with all databases, tables and columns with data types: " + JSON.stringify(databasesTablesColumns)
     })
 
     messageHistory.push(userQuery)
@@ -384,10 +385,11 @@ app.post('/allDbsAndSchemas', async (req, res) => {
     console.log('send status 3')
     // console.log(getUpdatedMessageHistory)
     messageHistory = []
-    messageHistory = [...startMessageStack]
-    if (getUpdatedMessageHistory) return res.send(JSON.safeStringify(getUpdatedMessageHistory))
-    // else return res.sendStatus(500).json('Something went wrong')
+    if (getUpdatedMessageHistory) {
+        return res.send(JSON.safeStringify(getUpdatedMessageHistory))
+    } else return res.status(500).send('Something went wrong')
 });
+
 
 
 // Catch all requests
